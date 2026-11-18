@@ -1,0 +1,53 @@
+diff --git a/kvui.py b/kvui.py
+index d02769d..7475f40 100644
+--- a/kvui.py
++++ b/kvui.py
+@@ -113,6 +113,38 @@ else:
+ remove_between_brackets = re.compile(r"\[.*?]")
+ 
+ 
++###################################################
++# Kivy/SDL2 run-time patch to fix horribly slow
++# window resize updates on Linux. For more info:
++# https://github.com/kivy/kivy/issues/9106
++#
++_sdl2_window_event_filter_original = None
++_sdl2_window_event_filter_instance = None
++def _sdl2_window_event_filter_proxy(action, *largs):
++    global _sdl2_window_event_filter_original
++    global _sdl2_window_event_filter_instance
++    if not action == 'windowresized': return _sdl2_window_event_filter_original(action, *largs)
++    else:
++        _sdl2_window_event_filter_instance._size = largs
++        _sdl2_window_event_filter_instance._win.resize_window(*_sdl2_window_event_filter_instance._size)
++        # The only change this patched method makes is to
++        # remove the offending "EventLoop.idle()" statement
++        # EventLoop.idle()
++        return 0
++
++def patch_sdl_window_events(patch_target):
++    import platform
++    if platform.system() == 'Linux':
++        global _sdl2_window_event_filter_original
++        global _sdl2_window_event_filter_instance
++        _sdl2_window_event_filter_original = patch_target._event_filter
++        _sdl2_window_event_filter_instance = patch_target
++        patch_target._event_filter = _sdl2_window_event_filter_proxy
++        patch_target._win.set_event_filter(patch_target._event_filter)
++#
++# End of Kivy/SDL2 patch ##########################
++
++
+ def kv_unescape(text: str) -> str:
+     return text.replace("&amp;", "&").replace("&bl;", "[").replace("&br;", "]")
+ 
+@@ -125,6 +157,9 @@ class ThemedApp(MDApp):
+         self.theme_cls.dynamic_scheme_name = text_colors.dynamic_scheme_name
+         self.theme_cls.dynamic_scheme_contrast = text_colors.dynamic_scheme_contrast
+ 
++    def on_start(self):
++        super().on_start()
++        patch_sdl_window_events(Window)
+ 
+ class LogtoLoadingScreen(logging.Handler):
+     def __init__(self, on_log):
